@@ -1,0 +1,6 @@
+{
+  "name": "GestãoSaaS - Sistema de Gestão Empresarial",
+  "description": "Sistema SaaS completo para gestão empresarial com múltiplos perfis, controle de estoque, aprovação de empresas, tickets e código-fonte PHP com MySQL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

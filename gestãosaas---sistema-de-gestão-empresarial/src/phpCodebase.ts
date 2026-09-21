@@ -1,0 +1,2134 @@
+export interface PhpFileDefinition {
+  path: string;
+  name: string;
+  category: 'database' | 'config' | 'auth' | 'admin' | 'modulos' | 'views' | 'assets';
+  description: string;
+  code: string;
+}
+
+export const PHP_CODEBASE: PhpFileDefinition[] = [
+  {
+    path: 'database/schema.sql',
+    name: 'schema.sql',
+    category: 'database',
+    description: 'Estrutura SQL completa com tabelas, índices e relacionamentos',
+    code: `-- ==========================================================
+-- GESTÃOSAAS - SISTEMA DE GESTÃO EMPRESARIAL MULTI-TENANT
+-- Banco de dados MySQL compatível com PHP 8.x e PDO
+-- ==========================================================
+
+CREATE DATABASE IF NOT EXISTS gestao_saas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE gestao_saas;
+
+-- 1. TABELA DE EMPRESAS (TENANTS)
+CREATE TABLE IF NOT EXISTS empresas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    razao_social VARCHAR(255) NOT NULL,
+    nome_fantasia VARCHAR(255) NOT NULL,
+    cnpj VARCHAR(20) NOT NULL UNIQUE,
+    email VARCHAR(150) NOT NULL,
+    telefone VARCHAR(30) NULL,
+    endereco VARCHAR(255) NULL,
+    cidade VARCHAR(100) NULL,
+    estado VARCHAR(2) NULL,
+    status ENUM('pendente', 'aprovada', 'rejeitada', 'suspensa') DEFAULT 'pendente',
+    logo_url VARCHAR(255) NULL,
+    banner_url VARCHAR(255) NULL,
+    cor_tema VARCHAR(20) DEFAULT '#2563eb',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cnpj (cnpj),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2. TABELA DE USUÁRIOS
+CREATE TABLE IF NOT EXISTS usuarios (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NULL,
+    nome VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    senha VARCHAR(255) NOT NULL,
+    perfil ENUM('admin', 'dono', 'gerente', 'funcionario') NOT NULL DEFAULT 'funcionario',
+    cargo VARCHAR(100) NULL,
+    departamento VARCHAR(100) NULL,
+    ativo TINYINT(1) DEFAULT 1,
+    ultimo_acesso DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+    INDEX idx_email (email),
+    INDEX idx_perfil (perfil),
+    INDEX idx_empresa (empresa_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 3. TABELA DE PRODUTOS
+CREATE TABLE IF NOT EXISTS produtos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NOT NULL,
+    nome VARCHAR(200) NOT NULL,
+    sku VARCHAR(60) NOT NULL,
+    codigo_barras VARCHAR(100) NULL,
+    categoria VARCHAR(100) NOT NULL DEFAULT 'Geral',
+    preco_custo DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    preco_venda DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    estoque_atual INT NOT NULL DEFAULT 0,
+    estoque_minimo INT NOT NULL DEFAULT 5,
+    unidade_medida VARCHAR(10) DEFAULT 'UN',
+    localizacao VARCHAR(100) NULL,
+    foto_url VARCHAR(255) NULL,
+    ativo TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_empresa_sku (empresa_id, sku),
+    INDEX idx_empresa_prod (empresa_id),
+    INDEX idx_categoria (categoria)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 4. TABELA DE MOVIMENTAÇÕES DE ESTOQUE
+CREATE TABLE IF NOT EXISTS movimentacoes_estoque (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NOT NULL,
+    produto_id INT NOT NULL,
+    usuario_id INT NOT NULL,
+    tipo ENUM('entrada', 'saida', 'ajuste', 'devolucao') NOT NULL,
+    quantidade INT NOT NULL,
+    saldo_anterior INT NOT NULL,
+    saldo_posterior INT NOT NULL,
+    motivo VARCHAR(255) NOT NULL,
+    documento_ref VARCHAR(100) NULL,
+    valor_unitario DECIMAL(10,2) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE RESTRICT,
+    INDEX idx_empresa_mov (empresa_id),
+    INDEX idx_produto_mov (produto_id),
+    INDEX idx_data_mov (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 5. TABELA DE TICKETS DE ATENDIMENTO
+CREATE TABLE IF NOT EXISTS tickets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NOT NULL,
+    usuario_id INT NOT NULL,
+    titulo VARCHAR(200) NOT NULL,
+    categoria ENUM('suporte', 'financeiro', 'duvida', 'sugestao', 'urgente') DEFAULT 'suporte',
+    prioridade ENUM('baixa', 'media', 'alta', 'urgente') DEFAULT 'media',
+    status ENUM('aberto', 'em_atendimento', 'resolvido', 'fechado') DEFAULT 'aberto',
+    descricao TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE RESTRICT,
+    INDEX idx_empresa_ticket (empresa_id),
+    INDEX idx_status_ticket (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 6. TABELA DE MENSAGENS DO TICKET
+CREATE TABLE IF NOT EXISTS ticket_mensagens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_id INT NOT NULL,
+    usuario_id INT NOT NULL,
+    mensagem TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 7. TABELA DE DOCUMENTOS E ANEXOS
+CREATE TABLE IF NOT EXISTS documentos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NOT NULL,
+    ticket_id INT NULL,
+    nome_original VARCHAR(255) NOT NULL,
+    nome_arquivo VARCHAR(255) NOT NULL,
+    caminho VARCHAR(255) NOT NULL,
+    tamanho INT NOT NULL,
+    tipo_mime VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 8. TABELA DE TOKENS DE RECUPERAÇÃO DE SENHA
+CREATE TABLE IF NOT EXISTS tokens_recuperacao (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(150) NOT NULL,
+    token VARCHAR(64) NOT NULL,
+    expira_em DATETIME NOT NULL,
+    usado TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_token (token),
+    INDEX idx_email_rec (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 9. TABELA DE CONFIGURAÇÕES GERAIS
+CREATE TABLE IF NOT EXISTS configuracoes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    empresa_id INT NULL,
+    chave VARCHAR(100) NOT NULL,
+    valor TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_empresa_chave (empresa_id, chave)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- INSERÇÃO DO ADMINISTRADOR PADRÃO DO SISTEMA
+-- Senha padrão provisória: Admin@123 (hash BCRYPT gerado com cost 12)
+INSERT INTO usuarios (empresa_id, nome, email, senha, perfil, cargo, ativo)
+VALUES (NULL, 'Super Administrador SaaS', 'admin@saas.com.br', '$2y$12$e0M2/RkR9s3yG0cZbK0cReU2Y/o0bK0cReU2Y/o0bK0cReU2Y/o0b', 'admin', 'Administrador Global', 1)
+ON DUPLICATE KEY UPDATE id=id;
+`
+  },
+  {
+    path: 'config/Database.php',
+    name: 'Database.php',
+    category: 'config',
+    description: 'Conexão PDO Singleton com criação automática de banco e tabelas',
+    code: `<?php
+/**
+ * Conexão com Banco de Dados usando PDO
+ * Auto-criação de banco e tabelas se não existirem
+ */
+
+namespace Config;
+
+use PDO;
+use PDOException;
+
+class Database {
+    private static ?PDO $instance = null;
+    
+    // Configurações padrão (podem ser lidas de variáveis de ambiente .env)
+    private static string $host = 'localhost';
+    private static string $dbName = 'gestao_saas';
+    private static string $user = 'root';
+    private static string $pass = '';
+    private static string $charset = 'utf8mb4';
+
+    public static function getConnection(): PDO {
+        if (self::$instance === null) {
+            try {
+                // Carrega variáveis se existirem
+                self::$host = getenv('DB_HOST') ?: self::$host;
+                self::$dbName = getenv('DB_NAME') ?: self::$dbName;
+                self::$user = getenv('DB_USER') ?: self::$user;
+                self::$pass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : self::$pass;
+
+                // 1. Conecta inicialmente sem selecionar o DB para verificar se existe
+                $dsnWithoutDb = "mysql:host=" . self::$host . ";charset=" . self::$charset;
+                $pdoInit = new PDO($dsnWithoutDb, self::$user, self::$pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                ]);
+
+                // Cria o banco caso não exista
+                $pdoInit->exec("CREATE DATABASE IF NOT EXISTS \`" . self::$dbName . "\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+
+                // 2. Conecta agora ao banco de dados específico
+                $dsn = "mysql:host=" . self::$host . ";dbname=" . self::$dbName . ";charset=" . self::$charset;
+                self::$instance = new PDO($dsn, self::$user, self::$pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false,
+                ]);
+
+                // 3. Executa verificação e criação automática de tabelas
+                self::bootstrapTables(self::$instance);
+
+            } catch (PDOException $e) {
+                // Resposta segura em JSON sem expor credenciais
+                http_response_code(500);
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Erro de conexão com o banco de dados.',
+                    'error' => $e->getMessage()
+                ]);
+                exit;
+            }
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Criação automática das tabelas essenciais se não existirem
+     */
+    private static function bootstrapTables(PDO $pdo): void {
+        $schemaPath = __DIR__ . '/../database/schema.sql';
+        if (file_exists($schemaPath)) {
+            $sql = file_get_contents($schemaPath);
+            // Executa instruções
+            $pdo->exec($sql);
+        }
+    }
+}
+`
+  },
+  {
+    path: 'config/Session.php',
+    name: 'Session.php',
+    category: 'config',
+    description: 'Gerenciamento seguro de sessões e controle de acesso baseado em papéis (RBAC)',
+    code: `<?php
+/**
+ * Gerenciamento de Sessão e Controle de Acesso (RBAC)
+ */
+
+namespace Config;
+
+class Session {
+    public static function start(): void {
+        if (session_status() === PHP_SESSION_NONE) {
+            // Parâmetros de segurança de cookie de sessão
+            ini_set('session.cookie_httponly', '1');
+            ini_set('session.use_only_cookies', '1');
+            ini_set('session.cookie_samesite', 'Lax');
+            
+            session_start();
+        }
+    }
+
+    public static function checkAuth(): void {
+        self::start();
+        if (!isset($_SESSION['user_id'])) {
+            if (self::isAjax()) {
+                http_response_code(401);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Sessão expirada. Faça login novamente.']);
+                exit;
+            }
+            header('Location: /login.php');
+            exit;
+        }
+    }
+
+    public static function requireRole(array $allowedRoles): void {
+        self::checkAuth();
+        $userRole = $_SESSION['user_perfil'] ?? '';
+        if (!in_array($userRole, $allowedRoles, true)) {
+            if (self::isAjax()) {
+                http_response_code(403);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Acesso não autorizado para o seu perfil.']);
+                exit;
+            }
+            header('Location: /painel.php?error=unauthorized');
+            exit;
+        }
+    }
+
+    public static function getEmpresaId(): ?int {
+        self::start();
+        return $_SESSION['empresa_id'] ?? null;
+    }
+
+    public static function getUserId(): ?int {
+        self::start();
+        return $_SESSION['user_id'] ?? null;
+    }
+
+    public static function getUserRole(): ?string {
+        self::start();
+        return $_SESSION['user_perfil'] ?? null;
+    }
+
+    private static function isAjax(): bool {
+        return (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') 
+            || (isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json'));
+    }
+}
+`
+  },
+  {
+    path: 'modules/auth/login.php',
+    name: 'login.php',
+    category: 'auth',
+    description: 'Endpoint de autenticação: login por E-mail ou CNPJ, verificação de aprovação e sessão',
+    code: `<?php
+/**
+ * Autenticação de Usuário (E-mail ou CNPJ)
+ * Resposta formatada em JSON com tratamento de aprovação de empresa
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::start();
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Método não permitido']);
+    exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+$identifier = trim($input['identifier'] ?? ''); // Pode ser e-mail ou CNPJ
+$senha = trim($input['senha'] ?? '');
+
+if (empty($identifier) || empty($senha)) {
+    echo json_encode(['success' => false, 'message' => 'Informe o E-mail ou CNPJ e a senha.']);
+    exit;
+}
+
+$pdo = Database::getConnection();
+
+// Remove caracteres não numéricos se parecer um CNPJ
+$cleanCnpj = preg_replace('/\\D/', '', $identifier);
+
+if (strlen($cleanCnpj) === 14) {
+    // Busca por CNPJ da empresa associada
+    $stmt = $pdo->prepare("
+        SELECT u.*, e.razao_social, e.nome_fantasia, e.status as empresa_status, e.logo_url, e.banner_url
+        FROM usuarios u
+        INNER JOIN empresas e ON u.empresa_id = e.id
+        WHERE REPLACE(REPLACE(REPLACE(REPLACE(e.cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = :cnpj
+        AND u.perfil IN ('dono', 'gerente')
+        AND u.ativo = 1
+        LIMIT 1
+    ");
+    $stmt->execute([':cnpj' => $cleanCnpj]);
+    $user = $stmt->fetch();
+} else {
+    // Busca por E-mail do usuário
+    $stmt = $pdo->prepare("
+        SELECT u.*, e.razao_social, e.nome_fantasia, e.status as empresa_status, e.logo_url, e.banner_url
+        FROM usuarios u
+        LEFT JOIN empresas e ON u.empresa_id = e.id
+        WHERE u.email = :email
+        LIMIT 1
+    ");
+    $stmt->execute([':email' => $identifier]);
+    $user = $stmt->fetch();
+}
+
+if (!$user || !password_verify($senha, $user['senha'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Credenciais incorretas. Verifique seus dados.']);
+    exit;
+}
+
+// Verifica se o usuário está ativo
+if ((int)$user['ativo'] !== 1) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Sua conta de usuário está inativa. Contate o administrador.']);
+    exit;
+}
+
+// Se não for admin global, verifica o status da empresa
+if ($user['perfil'] !== 'admin') {
+    if (empty($user['empresa_status'])) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Usuário sem empresa vinculada.']);
+        exit;
+    }
+
+    if ($user['empresa_status'] === 'pendente') {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Sua empresa está em análise e aguarda aprovação pelo administrador do SaaS.'
+        ]);
+        exit;
+    }
+
+    if ($user['empresa_status'] === 'rejeitada' || $user['empresa_status'] === 'suspensa') {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Sua empresa está com status ' . strtoupper($user['empresa_status']) . '. Entre em contato com o suporte.'
+        ]);
+        exit;
+    }
+}
+
+// Regenera ID de sessão contra session fixation
+session_regenerate_id(true);
+
+$_SESSION['user_id'] = (int)$user['id'];
+$_SESSION['user_nome'] = $user['nome'];
+$_SESSION['user_email'] = $user['email'];
+$_SESSION['user_perfil'] = $user['perfil'];
+$_SESSION['empresa_id'] = $user['empresa_id'] ? (int)$user['empresa_id'] : null;
+$_SESSION['empresa_nome'] = $user['nome_fantasia'] ?? $user['razao_social'] ?? 'Administração SaaS';
+
+// Atualiza último acesso
+$updateAccess = $pdo->prepare("UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = :id");
+$updateAccess->execute([':id' => $user['id']]);
+
+echo json_encode([
+    'success' => true,
+    'message' => 'Login realizado com sucesso!',
+    'user' => [
+        'id' => $user['id'],
+        'nome' => $user['nome'],
+        'email' => $user['email'],
+        'perfil' => $user['perfil'],
+        'empresa_id' => $user['empresa_id'],
+        'empresa_nome' => $_SESSION['empresa_nome']
+    ],
+    'redirect' => '/painel.php'
+]);
+`
+  },
+  {
+    path: 'modules/auth/register_company.php',
+    name: 'register_company.php',
+    category: 'auth',
+    description: 'Cadastro de nova empresa e seu proprietário com status pendente de aprovação',
+    code: `<?php
+/**
+ * Cadastro de Empresas e Usuário Dono (Self-Service)
+ * A empresa nasce com status 'pendente' aguardando aprovação do admin
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+
+use Config\Database;
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Método inválido']);
+    exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+
+$razaoSocial = trim($input['razao_social'] ?? '');
+$nomeFantasia = trim($input['nome_fantasia'] ?? '');
+$cnpj = trim($input['cnpj'] ?? '');
+$email = trim($input['email'] ?? '');
+$telefone = trim($input['telefone'] ?? '');
+$cidade = trim($input['cidade'] ?? '');
+$estado = strtoupper(trim($input['estado'] ?? ''));
+
+// Dados do Dono
+$nomeDono = trim($input['nome_dono'] ?? '');
+$emailDono = trim($input['email_dono'] ?? $email);
+$senha = trim($input['senha'] ?? '');
+
+// Validações
+if (empty($razaoSocial) || empty($cnpj) || empty($nomeDono) || empty($emailDono) || empty($senha)) {
+    echo json_encode(['success' => false, 'message' => 'Por favor preencha todos os campos obrigatórios.']);
+    exit;
+}
+
+if (!filter_var($emailDono, FILTER_VALIDATE_EMAIL)) {
+    echo json_encode(['success' => false, 'message' => 'E-mail inválido.']);
+    exit;
+}
+
+if (strlen($senha) < 6) {
+    echo json_encode(['success' => false, 'message' => 'A senha deve conter no mínimo 6 caracteres.']);
+    exit;
+}
+
+$pdo = Database::getConnection();
+
+// Verifica se CNPJ já existe
+$checkCnpj = $pdo->prepare("SELECT id FROM empresas WHERE cnpj = :cnpj");
+$checkCnpj->execute([':cnpj' => $cnpj]);
+if ($checkCnpj->fetch()) {
+    echo json_encode(['success' => false, 'message' => 'Este CNPJ já está cadastrado no sistema.']);
+    exit;
+}
+
+// Verifica se E-mail do dono já existe
+$checkUser = $pdo->prepare("SELECT id FROM usuarios WHERE email = :email");
+$checkUser->execute([':email' => $emailDono]);
+if ($checkUser->fetch()) {
+    echo json_encode(['success' => false, 'message' => 'Já existe um usuário cadastrado com este e-mail.']);
+    exit;
+}
+
+try {
+    $pdo->beginTransaction();
+
+    // 1. Cria a empresa com status 'pendente'
+    $stmtEmpresa = $pdo->prepare("
+        INSERT INTO empresas (razao_social, nome_fantasia, cnpj, email, telefone, cidade, estado, status)
+        VALUES (:razao_social, :nome_fantasia, :cnpj, :email, :telefone, :cidade, :estado, 'pendente')
+    ");
+    $stmtEmpresa->execute([
+        ':razao_social' => $razaoSocial,
+        ':nome_fantasia' => !empty($nomeFantasia) ? $nomeFantasia : $razaoSocial,
+        ':cnpj' => $cnpj,
+        ':email' => $email,
+        ':telefone' => $telefone,
+        ':cidade' => $cidade,
+        ':estado' => $estado
+    ]);
+    $empresaId = (int)$pdo->lastInsertId();
+
+    // 2. Cria o usuário com perfil 'dono'
+    $hashSenha = password_hash($senha, PASSWORD_BCRYPT, ['cost' => 12]);
+    $stmtUser = $pdo->prepare("
+        INSERT INTO usuarios (empresa_id, nome, email, senha, perfil, cargo, ativo)
+        VALUES (:empresa_id, :nome, :email, :senha, 'dono', 'Proprietário / Diretor', 1)
+    ");
+    $stmtUser->execute([
+        ':empresa_id' => $empresaId,
+        ':nome' => $nomeDono,
+        ':email' => $emailDono,
+        ':senha' => $hashSenha
+    ]);
+
+    $pdo->commit();
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Empresa cadastrada com sucesso! O cadastro foi enviado para análise e aprovação do Administrador.',
+        'empresa_id' => $empresaId
+    ]);
+
+} catch (Exception $e) {
+    $pdo->rollBack();
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Erro ao cadastrar empresa: ' . $e->getMessage()]);
+}
+`
+  },
+  {
+    path: 'modules/auth/recover_password.php',
+    name: 'recover_password.php',
+    category: 'auth',
+    description: 'Recuperação de senha via token criptográfico com simulação de envio de e-mail',
+    code: `<?php
+/**
+ * Recuperação e redefinição de senha com tokens seguros
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+
+use Config\Database;
+
+$action = $_GET['action'] ?? 'request';
+$input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+$pdo = Database::getConnection();
+
+if ($action === 'request') {
+    // 1. Solicita recuperação enviando o e-mail
+    $email = trim($input['email'] ?? '');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Por favor insira um e-mail válido.']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("SELECT id, nome FROM usuarios WHERE email = :email AND ativo = 1");
+    $stmt->execute([':email' => $email]);
+    $user = $stmt->fetch();
+
+    if (!$user) {
+        // Por segurança, resposta neutra
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Se o e-mail estiver cadastrado, as instruções de recuperação foram enviadas.'
+        ]);
+        exit;
+    }
+
+    // Gera token seguro de 64 caracteres
+    $token = bin2hex(random_bytes(32));
+    $expiraEm = date('Y-m-d H:i:s', strtotime('+2 hours'));
+
+    $stmtToken = $pdo->prepare("
+        INSERT INTO tokens_recuperacao (email, token, expira_em, usado)
+        VALUES (:email, :token, :expira_em, 0)
+    ");
+    $stmtToken->execute([
+        ':email' => $email,
+        ':token' => $token,
+        ':expira_em' => $expiraEm
+    ]);
+
+    // Simulação do envio de e-mail (usar mail() ou PHPMailer em ambiente de produção)
+    $linkRecuperacao = "http://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . "/login.php?token=" . $token;
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'E-mail de recuperação gerado com sucesso!',
+        'simulated_email' => [
+            'to' => $email,
+            'subject' => 'Recuperação de Senha - GestãoSaaS',
+            'token' => $token,
+            'link' => $linkRecuperacao,
+            'expires' => $expiraEm
+        ]
+    ]);
+    exit;
+}
+
+if ($action === 'reset') {
+    // 2. Redefine a senha com o token fornecido
+    $token = trim($input['token'] ?? '');
+    $novaSenha = trim($input['nova_senha'] ?? '');
+
+    if (empty($token) || empty($novaSenha)) {
+        echo json_encode(['success' => false, 'message' => 'Token e nova senha são obrigatórios.']);
+        exit;
+    }
+
+    if (strlen($novaSenha) < 6) {
+        echo json_encode(['success' => false, 'message' => 'A senha deve ter no mínimo 6 caracteres.']);
+        exit;
+    }
+
+    $stmtCheck = $pdo->prepare("
+        SELECT id, email FROM tokens_recuperacao 
+        WHERE token = :token AND usado = 0 AND expira_em > NOW()
+        ORDER BY id DESC LIMIT 1
+    ");
+    $stmtCheck->execute([':token' => $token]);
+    $tokenData = $stmtCheck->fetch();
+
+    if (!$tokenData) {
+        echo json_encode(['success' => false, 'message' => 'Token inválido ou expirado. Solicite uma nova recuperação.']);
+        exit;
+    }
+
+    $novaHash = password_hash($novaSenha, PASSWORD_BCRYPT, ['cost' => 12]);
+
+    $pdo->beginTransaction();
+    $updateSenha = $pdo->prepare("UPDATE usuarios SET senha = :senha WHERE email = :email");
+    $updateSenha->execute([':senha' => $novaHash, ':email' => $tokenData['email']]);
+
+    $updateToken = $pdo->prepare("UPDATE tokens_recuperacao SET usado = 1 WHERE id = :id");
+    $updateToken->execute([':id' => $tokenData['id']]);
+    $pdo->commit();
+
+    echo json_encode(['success' => true, 'message' => 'Sua senha foi redefinida com sucesso! Agora você já pode fazer login.']);
+    exit;
+}
+`
+  },
+  {
+    path: 'modules/admin/companies.php',
+    name: 'companies.php',
+    category: 'admin',
+    description: 'Painel Admin: listagem, aprovação, rejeição e suspensão de empresas cadastradas',
+    code: `<?php
+/**
+ * Gestão e Aprovação de Empresas pelo Administrador do SaaS
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin']);
+
+$pdo = Database::getConnection();
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'GET') {
+    $statusFilter = $_GET['status'] ?? '';
+    
+    $sql = "
+        SELECT e.*, 
+            COUNT(DISTINCT u.id) as total_usuarios,
+            COUNT(DISTINCT p.id) as total_produtos
+        FROM empresas e
+        LEFT JOIN usuarios u ON u.empresa_id = e.id
+        LEFT JOIN produtos p ON p.empresa_id = e.id
+    ";
+    $params = [];
+
+    if (!empty($statusFilter)) {
+        $sql .= " WHERE e.status = :status ";
+        $params[':status'] = $statusFilter;
+    }
+
+    $sql .= " GROUP BY e.id ORDER BY e.id DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $companies = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'data' => $companies]);
+    exit;
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $empresaId = (int)($input['empresa_id'] ?? 0);
+    $novoStatus = $input['status'] ?? '';
+
+    $statusValidos = ['pendente', 'aprovada', 'rejeitada', 'suspensa'];
+    if (!in_array($novoStatus, $statusValidos, true) || $empresaId <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Parâmetros inválidos.']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("UPDATE empresas SET status = :status WHERE id = :id");
+    $stmt->execute([':status' => $novoStatus, ':id' => $empresaId]);
+
+    echo json_encode([
+        'success' => true, 
+        'message' => "Status da empresa atualizado para: " . strtoupper($novoStatus)
+    ]);
+    exit;
+}
+`
+  },
+  {
+    path: 'modules/products/products.php',
+    name: 'products.php',
+    category: 'modulos',
+    description: 'CRUD de Produtos com isolamento multi-tenant, código de barras e estoque mínimo',
+    code: `<?php
+/**
+ * Gerenciamento de Produtos (Multi-tenant isolado por empresa_id)
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin', 'dono', 'gerente', 'funcionario']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$userRole = Session::getUserRole();
+$method = $_SERVER['REQUEST_METHOD'];
+
+// Para Admin global, pode visualizar produtos de uma empresa específica via parâmetro
+if ($userRole === 'admin' && isset($_GET['empresa_id'])) {
+    $empresaId = (int)$_GET['empresa_id'];
+}
+
+if (!$empresaId && $userRole !== 'admin') {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Empresa não selecionada.']);
+    exit;
+}
+
+if ($method === 'GET') {
+    $search = trim($_GET['q'] ?? '');
+    $categoria = trim($_GET['categoria'] ?? '');
+
+    $sql = "SELECT * FROM produtos WHERE empresa_id = :empresa_id AND ativo = 1";
+    $params = [':empresa_id' => $empresaId];
+
+    if (!empty($search)) {
+        $sql .= " AND (nome LIKE :q OR sku LIKE :q OR codigo_barras LIKE :q)";
+        $params[':q'] = "%$search%";
+    }
+    if (!empty($categoria)) {
+        $sql .= " AND categoria = :categoria";
+        $params[':categoria'] = $categoria;
+    }
+
+    $sql .= " ORDER BY nome ASC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $produtos = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'data' => $produtos]);
+    exit;
+}
+
+// Modificações exigem perfil dono ou gerente
+if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
+    if (!in_array($userRole, ['admin', 'dono', 'gerente'], true)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Apenas donos ou gerentes podem alterar produtos.']);
+        exit;
+    }
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $id = (int)($input['id'] ?? 0);
+
+    $nome = trim($input['nome'] ?? '');
+    $sku = trim($input['sku'] ?? '');
+    $categoria = trim($input['categoria'] ?? 'Geral');
+    $precoCusto = (float)($input['preco_custo'] ?? 0);
+    $precoVenda = (float)($input['preco_venda'] ?? 0);
+    $estoqueMinimo = (int)($input['estoque_minimo'] ?? 5);
+    $unidade = trim($input['unidade_medida'] ?? 'UN');
+    $localizacao = trim($input['localizacao'] ?? '');
+
+    if (empty($nome) || empty($sku)) {
+        echo json_encode(['success' => false, 'message' => 'Nome e SKU são campos obrigatórios.']);
+        exit;
+    }
+
+    if ($id > 0) {
+        // Atualização
+        $stmt = $pdo->prepare("
+            UPDATE produtos 
+            SET nome = :nome, sku = :sku, categoria = :categoria, preco_custo = :custo, 
+                preco_venda = :venda, estoque_minimo = :minimo, unidade_medida = :unidade, localizacao = :loc
+            WHERE id = :id AND empresa_id = :empresa_id
+        ");
+        $stmt->execute([
+            ':nome' => $nome,
+            ':sku' => $sku,
+            ':categoria' => $categoria,
+            ':custo' => $precoCusto,
+            ':venda' => $precoVenda,
+            ':minimo' => $estoqueMinimo,
+            ':unidade' => $unidade,
+            ':loc' => $localizacao,
+            ':id' => $id,
+            ':empresa_id' => $empresaId
+        ]);
+        echo json_encode(['success' => true, 'message' => 'Produto atualizado com sucesso!']);
+    } else {
+        // Cadastro
+        $estoqueInicial = (int)($input['estoque_atual'] ?? 0);
+        $stmt = $pdo->prepare("
+            INSERT INTO produtos (empresa_id, nome, sku, categoria, preco_custo, preco_venda, estoque_atual, estoque_minimo, unidade_medida, localizacao)
+            VALUES (:empresa_id, :nome, :sku, :categoria, :custo, :venda, :estoque, :minimo, :unidade, :loc)
+        ");
+        $stmt->execute([
+            ':empresa_id' => $empresaId,
+            ':nome' => $nome,
+            ':sku' => $sku,
+            ':categoria' => $categoria,
+            ':custo' => $precoCusto,
+            ':venda' => $precoVenda,
+            ':estoque' => $estoqueInicial,
+            ':minimo' => $estoqueMinimo,
+            ':unidade' => $unidade,
+            ':loc' => $localizacao
+        ]);
+        echo json_encode(['success' => true, 'message' => 'Produto cadastrado com sucesso!', 'id' => $pdo->lastInsertId()]);
+    }
+    exit;
+}
+
+if ($method === 'DELETE') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_GET;
+    $id = (int)($input['id'] ?? 0);
+
+    // Soft delete
+    $stmt = $pdo->prepare("UPDATE produtos SET ativo = 0 WHERE id = :id AND empresa_id = :empresa_id");
+    $stmt->execute([':id' => $id, ':empresa_id' => $empresaId]);
+
+    echo json_encode(['success' => true, 'message' => 'Produto removido com sucesso.']);
+    exit;
+}
+`
+  },
+  {
+    path: 'modules/stock/movements.php',
+    name: 'movements.php',
+    category: 'modulos',
+    description: 'Controle de Estoque: Entradas, Saídas e Ajustes com transações seguras PDO',
+    code: `<?php
+/**
+ * Movimentações de Estoque (Entradas, Saídas, Ajustes e Histórico)
+ * Utiliza transações ACID para garantir integridade do saldo
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin', 'dono', 'gerente', 'funcionario']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$userId = Session::getUserId();
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'GET') {
+    $produtoId = isset($_GET['produto_id']) ? (int)$_GET['produto_id'] : null;
+    $tipo = $_GET['tipo'] ?? '';
+
+    $sql = "
+        SELECT m.*, p.nome as produto_nome, p.sku as produto_sku, u.nome as usuario_nome
+        FROM movimentacoes_estoque m
+        INNER JOIN produtos p ON m.produto_id = p.id
+        INNER JOIN usuarios u ON m.usuario_id = u.id
+        WHERE m.empresa_id = :empresa_id
+    ";
+    $params = [':empresa_id' => $empresaId];
+
+    if ($produtoId) {
+        $sql .= " AND m.produto_id = :produto_id";
+        $params[':produto_id'] = $produtoId;
+    }
+    if (!empty($tipo)) {
+        $sql .= " AND m.tipo = :tipo";
+        $params[':tipo'] = $tipo;
+    }
+
+    $sql .= " ORDER BY m.id DESC LIMIT 100";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $movimentacoes = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'data' => $movimentacoes]);
+    exit;
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+
+    $produtoId = (int)($input['produto_id'] ?? 0);
+    $tipo = $input['tipo'] ?? ''; // 'entrada', 'saida', 'ajuste', 'devolucao'
+    $quantidade = (int)($input['quantidade'] ?? 0);
+    $motivo = trim($input['motivo'] ?? '');
+    $docRef = trim($input['documento_ref'] ?? '');
+    $valorUnitario = isset($input['valor_unitario']) ? (float)$input['valor_unitario'] : null;
+
+    $tiposPermitidos = ['entrada', 'saida', 'ajuste', 'devolucao'];
+    if (!in_array($tipo, $tiposPermitidos, true) || $quantidade <= 0 || $produtoId <= 0 || empty($motivo)) {
+        echo json_encode(['success' => false, 'message' => 'Preencha produto, tipo válido, quantidade positiva e motivo.']);
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // 1. Bloqueia a linha do produto para leitura/escrita atômica
+        $stmtProd = $pdo->prepare("SELECT estoque_atual FROM produtos WHERE id = :id AND empresa_id = :empresa_id FOR UPDATE");
+        $stmtProd->execute([':id' => $produtoId, ':empresa_id' => $empresaId]);
+        $prod = $stmtProd->fetch();
+
+        if (!$prod) {
+            $pdo->rollBack();
+            echo json_encode(['success' => false, 'message' => 'Produto não encontrado.']);
+            exit;
+        }
+
+        $saldoAnterior = (int)$prod['estoque_atual'];
+
+        // 2. Calcula novo saldo
+        if ($tipo === 'entrada' || $tipo === 'devolucao') {
+            $saldoPosterior = $saldoAnterior + $quantidade;
+        } elseif ($tipo === 'saida') {
+            if ($saldoAnterior < $quantidade) {
+                $pdo->rollBack();
+                echo json_encode([
+                    'success' => false, 
+                    'message' => "Saldo insuficiente em estoque. Disponível: {$saldoAnterior}, Solicitado: {$quantidade}"
+                ]);
+                exit;
+            }
+            $saldoPosterior = $saldoAnterior - $quantidade;
+        } elseif ($tipo === 'ajuste') {
+            // Em ajuste, a quantidade informada pode ser o novo estoque absoluto
+            $saldoPosterior = $quantidade;
+            $quantidade = abs($saldoPosterior - $saldoAnterior);
+        } else {
+            $saldoPosterior = $saldoAnterior;
+        }
+
+        // 3. Atualiza o estoque do produto
+        $stmtUpdate = $pdo->prepare("UPDATE produtos SET estoque_atual = :novo_saldo, updated_at = NOW() WHERE id = :id");
+        $stmtUpdate->execute([':novo_saldo' => $saldoPosterior, ':id' => $produtoId]);
+
+        // 4. Registra a movimentação na tabela de auditoria
+        $stmtMov = $pdo->prepare("
+            INSERT INTO movimentacoes_estoque 
+            (empresa_id, produto_id, usuario_id, tipo, quantidade, saldo_anterior, saldo_posterior, motivo, documento_ref, valor_unitario)
+            VALUES (:empresa_id, :produto_id, :usuario_id, :tipo, :quantidade, :saldo_anterior, :saldo_posterior, :motivo, :doc_ref, :valor)
+        ");
+        $stmtMov->execute([
+            ':empresa_id' => $empresaId,
+            ':produto_id' => $produtoId,
+            ':usuario_id' => $userId,
+            ':tipo' => $tipo,
+            ':quantidade' => $quantidade,
+            ':saldo_anterior' => $saldoAnterior,
+            ':saldo_posterior' => $saldoPosterior,
+            ':motivo' => $motivo,
+            ':doc_ref' => $docRef,
+            ':valor' => $valorUnitario
+        ]);
+
+        $pdo->commit();
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Movimentação realizada com sucesso!',
+            'novo_saldo' => $saldoPosterior
+        ]);
+
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Erro ao processar movimentação: ' . $e->getMessage()]);
+    }
+    exit;
+}
+`
+  },
+  {
+    path: 'modules/employees/employees.php',
+    name: 'employees.php',
+    category: 'modulos',
+    description: 'Cadastro e gestão de equipe com perfis: gerente, funcionário e dono',
+    code: `<?php
+/**
+ * Gerenciamento de Funcionários e Usuários da Empresa
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+// Apenas Donos ou Gerentes podem gerenciar funcionários
+Session::requireRole(['admin', 'dono', 'gerente']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'GET') {
+    $stmt = $pdo->prepare("
+        SELECT id, empresa_id, nome, email, perfil, cargo, departamento, ativo, ultimo_acesso, created_at
+        FROM usuarios
+        WHERE empresa_id = :empresa_id
+        ORDER BY perfil ASC, nome ASC
+    ");
+    $stmt->execute([':empresa_id' => $empresaId]);
+    $funcionarios = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'data' => $funcionarios]);
+    exit;
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $id = (int)($input['id'] ?? 0);
+
+    $nome = trim($input['nome'] ?? '');
+    $email = trim($input['email'] ?? '');
+    $perfil = trim($input['perfil'] ?? 'funcionario'); // 'gerente', 'funcionario'
+    $cargo = trim($input['cargo'] ?? '');
+    $departamento = trim($input['departamento'] ?? '');
+    $senha = trim($input['senha'] ?? '');
+    $ativo = isset($input['ativo']) ? (int)$input['ativo'] : 1;
+
+    // Não permite criar outro admin global por aqui
+    if ($perfil === 'admin') {
+        $perfil = 'gerente';
+    }
+
+    if (empty($nome) || empty($email)) {
+        echo json_encode(['success' => false, 'message' => 'Nome e e-mail são obrigatórios.']);
+        exit;
+    }
+
+    if ($id > 0) {
+        // Atualiza funcionário
+        $sql = "UPDATE usuarios SET nome = :nome, email = :email, perfil = :perfil, cargo = :cargo, departamento = :dep, ativo = :ativo ";
+        $params = [
+            ':nome' => $nome,
+            ':email' => $email,
+            ':perfil' => $perfil,
+            ':cargo' => $cargo,
+            ':dep' => $departamento,
+            ':ativo' => $ativo,
+            ':id' => $id,
+            ':empresa_id' => $empresaId
+        ];
+
+        if (!empty($senha)) {
+            $sql .= ", senha = :senha ";
+            $params[':senha'] = password_hash($senha, PASSWORD_BCRYPT, ['cost' => 12]);
+        }
+
+        $sql .= " WHERE id = :id AND empresa_id = :empresa_id";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+
+        echo json_encode(['success' => true, 'message' => 'Colaborador atualizado com sucesso!']);
+    } else {
+        // Novo cadastro
+        if (empty($senha)) {
+            echo json_encode(['success' => false, 'message' => 'A senha inicial é obrigatória para novo funcionário.']);
+            exit;
+        }
+
+        // Verifica duplicidade de e-mail
+        $check = $pdo->prepare("SELECT id FROM usuarios WHERE email = :email");
+        $check->execute([':email' => $email]);
+        if ($check->fetch()) {
+            echo json_encode(['success' => false, 'message' => 'Já existe um usuário com este e-mail.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO usuarios (empresa_id, nome, email, senha, perfil, cargo, departamento, ativo)
+            VALUES (:empresa_id, :nome, :email, :senha, :perfil, :cargo, :dep, :ativo)
+        ");
+        $stmt->execute([
+            ':empresa_id' => $empresaId,
+            ':nome' => $nome,
+            ':email' => $email,
+            ':senha' => password_hash($senha, PASSWORD_BCRYPT, ['cost' => 12]),
+            ':perfil' => $perfil,
+            ':cargo' => $cargo,
+            ':dep' => $departamento,
+            ':ativo' => $ativo
+        ]);
+
+        echo json_encode(['success' => true, 'message' => 'Funcionário adicionado com sucesso!']);
+    }
+    exit;
+}
+`
+  },
+  {
+    path: 'modules/tickets/tickets.php',
+    name: 'tickets.php',
+    category: 'modulos',
+    description: 'Central de Atendimento: Abertura de tickets, prioridades, mensagens e respostas',
+    code: `<?php
+/**
+ * Central de Suporte e Tickets de Atendimento
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin', 'dono', 'gerente', 'funcionario']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$userId = Session::getUserId();
+$userRole = Session::getUserRole();
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'GET') {
+    $ticketId = isset($_GET['id']) ? (int)$_GET['id'] : null;
+
+    if ($ticketId) {
+        // Retorna o ticket específico com todas as mensagens
+        $stmt = $pdo->prepare("
+            SELECT t.*, u.nome as solicitante_nome, e.nome_fantasia as empresa_nome
+            FROM tickets t
+            INNER JOIN usuarios u ON t.usuario_id = u.id
+            INNER JOIN empresas e ON t.empresa_id = e.id
+            WHERE t.id = :id AND (t.empresa_id = :empresa_id OR :is_admin = 'admin')
+        ");
+        $stmt->execute([
+            ':id' => $ticketId,
+            ':empresa_id' => $empresaId,
+            ':is_admin' => $userRole
+        ]);
+        $ticket = $stmt->fetch();
+
+        if (!$ticket) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Ticket não encontrado.']);
+            exit;
+        }
+
+        // Mensagens do ticket
+        $stmtMsg = $pdo->prepare("
+            SELECT tm.*, u.nome as usuario_nome, u.perfil as usuario_perfil
+            FROM ticket_mensagens tm
+            INNER JOIN usuarios u ON tm.usuario_id = u.id
+            WHERE tm.ticket_id = :ticket_id
+            ORDER BY tm.created_at ASC
+        ");
+        $stmtMsg->execute([':ticket_id' => $ticketId]);
+        $ticket['mensagens'] = $stmtMsg->fetchAll();
+
+        echo json_encode(['success' => true, 'data' => $ticket]);
+        exit;
+    }
+
+    // Lista tickets
+    $sql = "
+        SELECT t.*, u.nome as solicitante_nome, COUNT(tm.id) as total_respostas
+        FROM tickets t
+        INNER JOIN usuarios u ON t.usuario_id = u.id
+        LEFT JOIN ticket_mensagens tm ON tm.ticket_id = t.id
+        WHERE (t.empresa_id = :empresa_id OR :is_admin = 'admin')
+        GROUP BY t.id
+        ORDER BY FIELD(t.status, 'aberto', 'em_atendimento', 'resolvido', 'fechado'), t.created_at DESC
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([
+        ':empresa_id' => $empresaId,
+        ':is_admin' => $userRole
+    ]);
+    $tickets = $stmt->fetchAll();
+
+    echo json_encode(['success' => true, 'data' => $tickets]);
+    exit;
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+    $action = $input['action'] ?? 'create';
+
+    if ($action === 'create') {
+        $titulo = trim($input['titulo'] ?? '');
+        $categoria = $input['categoria'] ?? 'suporte';
+        $prioridade = $input['prioridade'] ?? 'media';
+        $descricao = trim($input['descricao'] ?? '');
+
+        if (empty($titulo) || empty($descricao)) {
+            echo json_encode(['success' => false, 'message' => 'Título e descrição detalhada são obrigatórios.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO tickets (empresa_id, usuario_id, titulo, categoria, prioridade, status, descricao)
+            VALUES (:empresa_id, :usuario_id, :titulo, :categoria, :prioridade, 'aberto', :descricao)
+        ");
+        $stmt->execute([
+            ':empresa_id' => $empresaId,
+            ':usuario_id' => $userId,
+            ':titulo' => $titulo,
+            ':categoria' => $categoria,
+            ':prioridade' => $prioridade,
+            ':descricao' => $descricao
+        ]);
+
+        echo json_encode(['success' => true, 'message' => 'Ticket de atendimento aberto com sucesso!', 'id' => $pdo->lastInsertId()]);
+        exit;
+    }
+
+    if ($action === 'reply') {
+        $ticketId = (int)($input['ticket_id'] ?? 0);
+        $mensagem = trim($input['mensagem'] ?? '');
+
+        if ($ticketId <= 0 || empty($mensagem)) {
+            echo json_encode(['success' => false, 'message' => 'Mensagem não pode ser vazia.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("
+            INSERT INTO ticket_mensagens (ticket_id, usuario_id, mensagem)
+            VALUES (:ticket_id, :usuario_id, :mensagem)
+        ");
+        $stmt->execute([
+            ':ticket_id' => $ticketId,
+            ':usuario_id' => $userId,
+            ':mensagem' => $mensagem
+        ]);
+
+        // Atualiza status se estava resolvido ou fechado
+        $pdo->prepare("UPDATE tickets SET updated_at = NOW(), status = 'em_atendimento' WHERE id = :id AND status = 'aberto'")->execute([':id' => $ticketId]);
+
+        echo json_encode(['success' => true, 'message' => 'Resposta enviada com sucesso!']);
+        exit;
+    }
+
+    if ($action === 'status') {
+        $ticketId = (int)($input['ticket_id'] ?? 0);
+        $novoStatus = $input['status'] ?? '';
+        $validos = ['aberto', 'em_atendimento', 'resolvido', 'fechado'];
+
+        if (!in_array($novoStatus, $validos, true)) {
+            echo json_encode(['success' => false, 'message' => 'Status inválido.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("UPDATE tickets SET status = :status, updated_at = NOW() WHERE id = :id");
+        $stmt->execute([':status' => $novoStatus, ':id' => $ticketId]);
+
+        echo json_encode(['success' => true, 'message' => 'Status do ticket atualizado para: ' . $novoStatus]);
+        exit;
+    }
+}
+`
+  },
+  {
+    path: 'modules/dashboard/stats.php',
+    name: 'stats.php',
+    category: 'modulos',
+    description: 'Métricas analíticas do Dashboard: KPIs de estoque, movimentações do mês e chamados',
+    code: `<?php
+/**
+ * Estatísticas e Indicadores para o Dashboard da Empresa e Admin
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin', 'dono', 'gerente', 'funcionario']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$userRole = Session::getUserRole();
+
+if ($userRole === 'admin') {
+    // Estatísticas Globais do SaaS
+    $totalEmpresas = $pdo->query("SELECT COUNT(*) FROM empresas")->fetchColumn();
+    $empresasPendentes = $pdo->query("SELECT COUNT(*) FROM empresas WHERE status = 'pendente'")->fetchColumn();
+    $empresasAprovadas = $pdo->query("SELECT COUNT(*) FROM empresas WHERE status = 'aprovada'")->fetchColumn();
+    $totalUsuarios = $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn();
+    $totalTickets = $pdo->query("SELECT COUNT(*) FROM tickets WHERE status IN ('aberto', 'em_atendimento')")->fetchColumn();
+
+    echo json_encode([
+        'success' => true,
+        'type' => 'admin',
+        'stats' => [
+            'totalEmpresas' => (int)$totalEmpresas,
+            'empresasPendentes' => (int)$empresasPendentes,
+            'empresasAprovadas' => (int)$empresasAprovadas,
+            'totalUsuarios' => (int)$totalUsuarios,
+            'ticketsAbertos' => (int)$totalTickets
+        ]
+    ]);
+    exit;
+}
+
+// Estatísticas da Empresa (Tenant)
+$stmtProd = $pdo->prepare("
+    SELECT 
+        COUNT(*) as total_produtos,
+        COALESCE(SUM(estoque_atual * preco_venda), 0) as valor_total_estoque,
+        COALESCE(SUM(CASE WHEN estoque_atual <= estoque_minimo THEN 1 ELSE 0 END), 0) as estoque_critico
+    FROM produtos
+    WHERE empresa_id = :empresa_id AND ativo = 1
+");
+$stmtProd->execute([':empresa_id' => $empresaId]);
+$prodStats = $stmtProd->fetch();
+
+// Movimentações no mês atual
+$stmtMov = $pdo->prepare("
+    SELECT COUNT(*) as total_movimentacoes,
+        COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN quantidade ELSE 0 END), 0) as total_entradas,
+        COALESCE(SUM(CASE WHEN tipo = 'saida' THEN quantidade ELSE 0 END), 0) as total_saidas
+    FROM movimentacoes_estoque
+    WHERE empresa_id = :empresa_id AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())
+");
+$stmtMov->execute([':empresa_id' => $empresaId]);
+$movStats = $stmtMov->fetch();
+
+// Tickets da empresa
+$stmtTicket = $pdo->prepare("
+    SELECT COUNT(*) FROM tickets 
+    WHERE empresa_id = :empresa_id AND status IN ('aberto', 'em_atendimento')
+");
+$stmtTicket->execute([':empresa_id' => $empresaId]);
+$ticketsAbertos = (int)$stmtTicket->fetchColumn();
+
+echo json_encode([
+    'success' => true,
+    'type' => 'tenant',
+    'stats' => [
+        'totalProdutos' => (int)$prodStats['total_produtos'],
+        'valorTotalEstoque' => (float)$prodStats['valor_total_estoque'],
+        'itensEstoqueCritico' => (int)$prodStats['estoque_critico'],
+        'movimentacoesMes' => (int)$movStats['total_movimentacoes'],
+        'totalEntradasMes' => (int)$movStats['total_entradas'],
+        'totalSaidasMes' => (int)$movStats['total_saidas'],
+        'ticketsAbertos' => $ticketsAbertos
+    ]
+]);
+`
+  },
+  {
+    path: 'modules/settings/company.php',
+    name: 'company.php',
+    category: 'modulos',
+    description: 'Configuração da Empresa: Logo, banner, dados cadastrais e personalização de tema',
+    code: `<?php
+/**
+ * Configuração da Empresa (Logo, Banner, Tema e Dados Cadastrais)
+ */
+
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../config/Session.php';
+
+use Config\Database;
+use Config\Session;
+
+Session::requireRole(['admin', 'dono']);
+
+$pdo = Database::getConnection();
+$empresaId = Session::getEmpresaId();
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'GET') {
+    $stmt = $pdo->prepare("SELECT * FROM empresas WHERE id = :id");
+    $stmt->execute([':id' => $empresaId]);
+    $empresa = $stmt->fetch();
+
+    echo json_encode(['success' => true, 'data' => $empresa]);
+    exit;
+}
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+
+    $nomeFantasia = trim($input['nome_fantasia'] ?? '');
+    $telefone = trim($input['telefone'] ?? '');
+    $endereco = trim($input['endereco'] ?? '');
+    $cidade = trim($input['cidade'] ?? '');
+    $estado = strtoupper(trim($input['estado'] ?? ''));
+    $logoUrl = trim($input['logo_url'] ?? '');
+    $bannerUrl = trim($input['banner_url'] ?? '');
+    $corTema = trim($input['cor_tema'] ?? '#2563eb');
+
+    $stmt = $pdo->prepare("
+        UPDATE empresas 
+        SET nome_fantasia = :fantasia, telefone = :telefone, endereco = :endereco,
+            cidade = :cidade, estado = :estado, logo_url = :logo, banner_url = :banner, cor_tema = :cor,
+            updated_at = NOW()
+        WHERE id = :id
+    ");
+    $stmt->execute([
+        ':fantasia' => $nomeFantasia,
+        ':telefone' => $telefone,
+        ':endereco' => $endereco,
+        ':cidade' => $cidade,
+        ':estado' => $estado,
+        ':logo' => $logoUrl,
+        ':banner' => $bannerUrl,
+        ':cor' => $corTema,
+        ':id' => $empresaId
+    ]);
+
+    echo json_encode(['success' => true, 'message' => 'Configurações da empresa salvas com sucesso!']);
+    exit;
+}
+`
+  },
+  {
+    path: 'index.php',
+    name: 'index.php',
+    category: 'views',
+    description: 'Página inicial e roteador principal do SaaS com redirecionamento de sessão',
+    code: `<?php
+/**
+ * Roteador Inicial do SaaS
+ * Se autenticado, encaminha para /painel.php; caso contrário, para /login.php
+ */
+
+require_once __DIR__ . '/config/Session.php';
+use Config\Session;
+
+Session::start();
+
+if (isset($_SESSION['user_id'])) {
+    header('Location: /painel.php');
+    exit;
+}
+
+header('Location: /login.php');
+exit;
+`
+  },
+  {
+    path: 'login.php',
+    name: 'login.php',
+    category: 'views',
+    description: 'Interface de Login (E-mail ou CNPJ), Cadastro de Empresa e Recuperação de Senha',
+    code: `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GestãoSaaS - Login & Cadastro Empresarial</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="auth-body">
+    <div class="auth-container">
+        <div class="auth-header">
+            <div class="auth-logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 21h18M3 7v14M21 7v14M6 7V3h12v4M9 11h2M13 11h2M9 15h2M13 15h2"/>
+                </svg>
+                <span>GestãoSaaS</span>
+            </div>
+            <p>Plataforma de Gestão Integrada para Pequenas e Médias Empresas</p>
+        </div>
+
+        <div class="auth-tabs">
+            <button class="tab-btn active" onclick="switchAuthTab('login')">Acessar Conta</button>
+            <button class="tab-btn" onclick="switchAuthTab('register')">Cadastrar Empresa</button>
+            <button class="tab-btn" onclick="switchAuthTab('recover')">Esqueci Senha</button>
+        </div>
+
+        <div id="alertBox" class="alert-box d-none"></div>
+
+        <!-- TAB 1: LOGIN -->
+        <form id="formLogin" class="auth-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="loginIdentifier">E-mail ou CNPJ</label>
+                <input type="text" id="loginIdentifier" placeholder="seu@email.com ou 00.000.000/0001-00" required>
+            </div>
+            <div class="form-group">
+                <label for="loginSenha">Senha</label>
+                <input type="password" id="loginSenha" placeholder="Digite sua senha" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Entrar no Painel</button>
+            
+            <div class="auth-help-box">
+                <strong>Credenciais de Demonstração:</strong><br>
+                <span>Admin SaaS:</span> admin@saas.com.br | Admin@123<br>
+                <span>Dono Empresa:</span> dono@empresa.com.br ou CNPJ | Dono@123
+            </div>
+        </form>
+
+        <!-- TAB 2: CADASTRO DE EMPRESA -->
+        <form id="formRegister" class="auth-form d-none" onsubmit="handleRegister(event)">
+            <div class="form-group">
+                <label for="regRazao">Razão Social *</label>
+                <input type="text" id="regRazao" placeholder="Ex: Alfa Logística e Comércio LTDA" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="regCnpj">CNPJ *</label>
+                    <input type="text" id="regCnpj" placeholder="00.000.000/0001-00" required>
+                </div>
+                <div class="form-group">
+                    <label for="regFantasia">Nome Fantasia</label>
+                    <input type="text" id="regFantasia" placeholder="Ex: Alfa Express">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="regDono">Nome do Proprietário *</label>
+                    <input type="text" id="regDono" placeholder="Nome completo" required>
+                </div>
+                <div class="form-group">
+                    <label for="regEmail">E-mail do Dono *</label>
+                    <input type="email" id="regEmail" placeholder="contato@empresa.com" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="regTelefone">Telefone / WhatsApp</label>
+                    <input type="text" id="regTelefone" placeholder="(11) 98765-4321">
+                </div>
+                <div class="form-group">
+                    <label for="regSenha">Senha de Acesso *</label>
+                    <input type="password" id="regSenha" placeholder="Mínimo 6 dígitos" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success btn-block">Enviar Cadastro para Aprovação</button>
+        </form>
+
+        <!-- TAB 3: RECUPERAR SENHA -->
+        <form id="formRecover" class="auth-form d-none" onsubmit="handleRecover(event)">
+            <div class="form-group">
+                <label for="recEmail">Seu E-mail Cadastrado</label>
+                <input type="email" id="recEmail" placeholder="seu@email.com" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Gerar Token de Recuperação</button>
+            <div id="simulatedMailBox" class="simulated-mail-box d-none"></div>
+        </form>
+    </div>
+
+    <script src="/assets/js/app.js"></script>
+</body>
+</html>
+`
+  },
+  {
+    path: 'painel.php',
+    name: 'painel.php',
+    category: 'views',
+    description: 'Painel completo SPA com sidebar dinâmica, cabeçalho e módulos de gestão',
+    code: `<?php
+require_once __DIR__ . '/config/Session.php';
+use Config\Session;
+
+Session::checkAuth();
+$perfil = Session::getUserRole();
+$empresaId = Session::getEmpresaId();
+?>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Gestão - GestãoSaaS</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="dashboard-body">
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <span class="brand-icon">⚡</span>
+            <span class="brand-name">GestãoSaaS</span>
+        </div>
+
+        <div class="user-badge">
+            <div class="user-avatar"><?= strtoupper(substr($_SESSION['user_nome'], 0, 2)) ?></div>
+            <div class="user-info">
+                <strong><?= htmlspecialchars($_SESSION['user_nome']) ?></strong>
+                <span class="role-pill role-<?= $perfil ?>"><?= strtoupper($perfil) ?></span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#dashboard" class="nav-item active" onclick="loadModule('dashboard')">📊 Dashboard</a>
+            
+            <?php if ($perfil === 'admin'): ?>
+                <a href="#admin-empresas" class="nav-item" onclick="loadModule('admin-empresas')">🏢 Aprovação de Empresas</a>
+            <?php endif; ?>
+
+            <a href="#produtos" class="nav-item" onclick="loadModule('produtos')">📦 Produtos</a>
+            <a href="#estoque" class="nav-item" onclick="loadModule('estoque')">🔄 Controle de Estoque</a>
+            
+            <?php if (in_array($perfil, ['admin', 'dono', 'gerente'])): ?>
+                <a href="#funcionarios" class="nav-item" onclick="loadModule('funcionarios')">👥 Equipe / Funcionários</a>
+            <?php endif; ?>
+
+            <a href="#tickets" class="nav-item" onclick="loadModule('tickets')">🎫 Tickets de Atendimento</a>
+
+            <?php if (in_array($perfil, ['admin', 'dono'])): ?>
+                <a href="#configuracoes" class="nav-item" onclick="loadModule('configuracoes')">⚙️ Dados da Empresa & Logo</a>
+            <?php endif; ?>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="btn btn-outline btn-sm btn-block" onclick="handleLogout()">Encerrar Sessão</button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="topbar">
+            <div class="company-badge-header">
+                <span class="company-name"><?= htmlspecialchars($_SESSION['empresa_nome']) ?></span>
+            </div>
+            <div class="topbar-actions">
+                <span class="badge-date"><?= date('d/m/Y') ?></span>
+                <button class="btn btn-sm btn-danger" onclick="handleLogout()">Sair</button>
+            </div>
+        </header>
+
+        <div class="container-fluid" id="contentArea">
+            <div class="loading-spinner">Carregando painel...</div>
+        </div>
+    </main>
+
+    <script src="/assets/js/app.js"></script>
+</body>
+</html>
+`
+  },
+  {
+    path: 'assets/css/style.css',
+    name: 'style.css',
+    category: 'assets',
+    description: 'Folha de estilos moderna, responsiva, com cards, tabelas, modais e badges',
+    code: `/* =======================================================
+   ESTILOS GLOBAIS - GESTÃOSAAS PHP / MYSQL
+   ======================================================= */
+:root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #16a34a;
+    --warning: #f59e0b;
+    --danger: #dc2626;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
+    --font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font);
+    background-color: var(--slate-50);
+    color: var(--slate-800);
+    line-height: 1.5;
+}
+
+/* Auth Pages */
+.auth-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 540px;
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.auth-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--primary);
+    margin-bottom: 8px;
+}
+
+.auth-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    background: var(--slate-100);
+    padding: 4px;
+    border-radius: 10px;
+    margin-bottom: 24px;
+}
+
+.tab-btn {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--slate-600);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background: #ffffff;
+    color: var(--primary);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--slate-700);
+    margin-bottom: 6px;
+}
+
+.form-group input, .form-group select, .form-group textarea {
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 14px;
+    border: 1px solid var(--slate-300);
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-outline { background: transparent; border: 1px solid var(--slate-300); color: var(--slate-700); }
+.btn-block { width: 100%; }
+
+.auth-help-box {
+    margin-top: 20px;
+    padding: 12px;
+    background: var(--slate-50);
+    border: 1px dashed var(--slate-300);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--slate-600);
+}
+
+/* Dashboard Layout */
+.dashboard-body {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 260px;
+    background: var(--slate-900);
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px;
+}
+
+.sidebar-brand {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 24px;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.user-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--slate-800);
+    border-radius: 10px;
+    margin-bottom: 24px;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.role-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--slate-700);
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    color: var(--slate-300);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.nav-item:hover, .nav-item.active {
+    background: var(--primary);
+    color: #ffffff;
+}
+
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--slate-200);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.container-fluid {
+    padding: 24px;
+    flex: 1;
+}
+
+/* Badges & Tables */
+.table-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid var(--slate-200);
+    overflow: hidden;
+    margin-top: 16px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+th {
+    background: var(--slate-50);
+    text-align: left;
+    padding: 12px 16px;
+    font-weight: 600;
+    color: var(--slate-600);
+    border-bottom: 1px solid var(--slate-200);
+}
+
+td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--slate-200);
+}
+
+tr:hover {
+    background: var(--slate-50);
+}
+
+.d-none { display: none !important; }
+`
+  },
+  {
+    path: 'assets/js/app.js',
+    name: 'app.js',
+    category: 'assets',
+    description: 'Cliente AJAX JavaScript: rotas de autenticação, módulos assíncronos e formulários',
+    code: `/**
+ * GestãoSaaS - Cliente JavaScript AJAX
+ */
+
+function switchAuthTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.auth-form').forEach(form => form.classList.add('d-none'));
+    
+    if (tab === 'login') {
+        document.getElementById('formLogin').classList.remove('d-none');
+        event.target.classList.add('active');
+    } else if (tab === 'register') {
+        document.getElementById('formRegister').classList.remove('d-none');
+        event.target.classList.add('active');
+    } else if (tab === 'recover') {
+        document.getElementById('formRecover').classList.remove('d-none');
+        event.target.classList.add('active');
+    }
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    const identifier = document.getElementById('loginIdentifier').value;
+    const senha = document.getElementById('loginSenha').value;
+    const alertBox = document.getElementById('alertBox');
+
+    try {
+        const res = await fetch('/modules/auth/login.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier, senha })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            window.location.href = data.redirect || '/painel.php';
+        } else {
+            alertBox.className = 'alert-box alert-danger';
+            alertBox.textContent = data.message;
+            alertBox.classList.remove('d-none');
+        }
+    } catch (err) {
+        alert('Erro ao processar login: ' + err.message);
+    }
+}
+
+async function handleRegister(e) {
+    e.preventDefault();
+    const razao_social = document.getElementById('regRazao').value;
+    const cnpj = document.getElementById('regCnpj').value;
+    const nome_fantasia = document.getElementById('regFantasia').value;
+    const nome_dono = document.getElementById('regDono').value;
+    const email_dono = document.getElementById('regEmail').value;
+    const telefone = document.getElementById('regTelefone').value;
+    const senha = document.getElementById('regSenha').value;
+
+    try {
+        const res = await fetch('/modules/auth/register_company.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ razao_social, cnpj, nome_fantasia, nome_dono, email_dono, telefone, senha })
+        });
+        const data = await res.json();
+        alert(data.message);
+        if (data.success) {
+            switchAuthTab('login');
+        }
+    } catch (err) {
+        alert('Erro ao registrar empresa: ' + err.message);
+    }
+}
+
+async function handleRecover(e) {
+    e.preventDefault();
+    const email = document.getElementById('recEmail').value;
+    try {
+        const res = await fetch('/modules/auth/recover_password.php?action=request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        alert(data.message);
+    } catch (err) {
+        alert('Erro ao solicitar recuperação: ' + err.message);
+    }
+}
+
+async function handleLogout() {
+    await fetch('/modules/auth/logout.php');
+    window.location.href = '/login.php';
+}
+`
+  }
+];
